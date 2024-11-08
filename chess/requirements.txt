@@ -1,0 +1,5 @@
+Flask==2.3.2
+chess==1.9.0
+tensorflow==2.13.0
+numpy==1.23.0
+random2==1.0.1

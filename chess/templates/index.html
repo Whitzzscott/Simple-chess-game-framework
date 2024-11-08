@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Chess Board</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles/styles.css') }}">
+</head>
+<body>
+
+<div class="chess-board" id="chessBoard"></div>
+
+<div class="game-info">
+    <div class="timer" id="timerWhite">00:00</div>
+    <div class="timer" id="timerBlack" style="display: none;">00:00</div>
+</div>
+
+<div class="game-over" id="gameOver" style="display: none;">
+    <div class="game-over-content">
+        <p id="gameOverMessage">Game Over</p>
+        <button onclick="restartGame()">Restart Game</button>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+
+<script>
+    const chess = new Chess();
+    const chessPieces = {
+        "r": "rook", "n": "knight", "b": "bishop", "q": "queen", "k": "king", "p": "pawn",
+        "R": "rook", "N": "knight", "B": "bishop", "Q": "queen", "K": "king", "P": "pawn"
+    };
+
+    const initialBoard = [
+        ['r', 'n', 'b', 'q', 'k', 'b', 'n', 'r'],
+        ['p', 'p', 'p', 'p', 'p', 'p', 'p', 'p'],
+        ['', '', '', '', '', '', '', ''],
+        ['', '', '', '', '', '', '', ''],
+        ['', '', '', '', '', '', '', ''],
+        ['', '', '', '', '', '', '', ''],
+        ['P', 'P', 'P', 'P', 'P', 'P', 'P', 'P'],
+        ['R', 'N', 'B', 'Q', 'K', 'B', 'N', 'R']
+    ];
+
+    let boardState = JSON.parse(JSON.stringify(initialBoard));
+    let whiteTime = 0;
+    let blackTime = 0;
+    let whiteTimerInterval;
+    let blackTimerInterval;
+    let isWhiteTurn = true;
+
+    function log(message, data) {
+        console.log(message);
+        if (data) {
+            console.log(data);
+        }
+    }
+
+    function generateChessBoard() {
+        log("Generating Chess Board...");
+        const board = document.getElementById('chessBoard');
+        board.innerHTML = '';
+
+        for (let row = 0; row < 8; row++) {
+            for (let col = 0; col < 8; col++) {
+                const square = document.createElement('div');
+                square.classList.add('chess-square');
+                square.dataset.row = row;
+                square.dataset.col = col;
+
+                const piece = boardState[row][col];
+                if (piece) {
+                    const pieceElement = document.createElement('div');
+                    pieceElement.classList.add('chess-piece');
+                    pieceElement.style.backgroundImage = `url('/static/images/${chessPieces[piece]}-${piece === piece.toLowerCase() ? 'black' : 'white'}.png')`;
+                    pieceElement.draggable = true;
+                    pieceElement.dataset.row = row;
+                    pieceElement.dataset.col = col;
+                    pieceElement.addEventListener('dragstart', handleDragStart);
+                    pieceElement.addEventListener('dragend', handleDragEnd);
+                    square.appendChild(pieceElement);
+                }
+                square.addEventListener('dragover', handleDragOver);
+                square.addEventListener('drop', handleDrop);
+                board.appendChild(square);
+            }
+        }
+
+        checkGameOver();
+    }
+
+    function handleDragStart(e) {
+        log("Drag Start: ", { fromRow: e.target.dataset.row, fromCol: e.target.dataset.col });
+        e.dataTransfer.setData('piece', e.target.style.backgroundImage);
+        e.dataTransfer.setData('fromRow', e.target.dataset.row);
+        e.dataTransfer.setData('fromCol', e.target.dataset.col);
+        e.target.style.opacity = '0.5'; 
+    }
+
+    function handleDragEnd(e) {
+        log("Drag End: ", { fromRow: e.target.dataset.row, fromCol: e.target.dataset.col });
+        e.target.style.opacity = '1'; 
+    }
+
+    function handleDragOver(e) {
+        e.preventDefault();
+    }
+
+    function handleDrop(e) {
+        log("Drop Event: ", { toRow: e.target.dataset.row, toCol: e.target.dataset.col });
+        e.preventDefault();
+
+        const fromRow = e.dataTransfer.getData('fromRow');
+        const fromCol = e.dataTransfer.getData('fromCol');
+        const toRow = e.target.dataset.row;
+        const toCol = e.target.dataset.col;
+
+        if (toRow !== fromRow || toCol !== fromCol) {
+            const piece = boardState[fromRow][fromCol];
+            if (piece && isOpponentPiece(piece, toRow, toCol)) {
+                capturePiece(piece);
+            }
+            boardState[toRow][toCol] = piece;
+            boardState[fromRow][fromCol] = '';
+
+            animatePieceMovement(fromRow, fromCol, toRow, toCol);
+            switchTurns();
+        }
+    }
+
+    function animatePieceMovement(fromRow, fromCol, toRow, toCol) {
+        log("Animating Piece Movement: ", { fromRow, fromCol, toRow, toCol });
+        const pieceElement = document.querySelector(`.chess-piece[data-row="${fromRow}"][data-col="${fromCol}"]`);
+        const targetSquare = document.querySelector(`.chess-square[data-row="${toRow}"][data-col="${toCol}"]`);
+
+        pieceElement.style.transition = 'none';
+        const rect = targetSquare.getBoundingClientRect();
+        pieceElement.style.transform = `translate(${rect.left - pieceElement.offsetLeft}px, ${rect.top - pieceElement.offsetTop}px)`;
+
+        setTimeout(() => {
+            pieceElement.style.transition = 'transform 0.5s ease-in-out';
+            pieceElement.style.transform = 'translate(0, 0)';
+            generateChessBoard();
+        }, 50); 
+    }
+
+    function capturePiece(piece) {
+        log("Captured Piece: ", piece);
+    }
+
+    function checkGameOver() {
+        if (chess.game_over()) {
+            log("Game Over: ", chess.game_over());
+            showGameOver('Checkmate or Stalemate! Game over.');
+            return;
+        }
+    }
+
+    function isOpponentPiece(piece, toRow, toCol) {
+        const targetPiece = boardState[toRow][toCol];
+        return targetPiece && (targetPiece.toLowerCase() !== piece.toLowerCase());
+    }
+
+    function showGameOver(message) {
+        log("Game Over Message: ", message);
+        const gameOverElement = document.getElementById('gameOver');
+        const gameOverMessage = document.getElementById('gameOverMessage');
+        gameOverMessage.textContent = message;
+        gameOverElement.style.display = 'flex';
+        clearInterval(whiteTimerInterval);
+        clearInterval(blackTimerInterval);
+    }
+
+    function restartGame() {
+        log("Restarting Game...");
+        fetch('/restart_game', { method: 'POST' })
+            .then(response => {
+                log("Response from /restart_game:", response);
+                return response.json();
+            })
+            .then(data => {
+                log("Restart Game Data: ", data);
+                boardState = JSON.parse(JSON.stringify(initialBoard));
+                whiteTime = 0;
+                blackTime = 0;
+                isWhiteTurn = true;
+                clearInterval(whiteTimerInterval);
+                clearInterval(blackTimerInterval);
+                generateChessBoard();
+                document.getElementById('gameOver').style.display = 'none';
+                startTimers();
+            })
+            .catch(error => log("Error in restartGame fetch:", error));
+    }
+
+    function switchTurns() {
+        log("Switching Turns: ", { isWhiteTurn });
+        isWhiteTurn = !isWhiteTurn;
+        if (isWhiteTurn) {
+            document.getElementById('timerWhite').style.display = 'block';
+            document.getElementById('timerBlack').style.display = 'none';
+        } else {
+            document.getElementById('timerWhite').style.display = 'none';
+            document.getElementById('timerBlack').style.display = 'block';
+            fetchBlackMove();
+        }
+    }
+
+    function fetchBlackMove() {
+        log("Fetching Black's Move...");
+        fetch('/get_move')
+            .then(response => {
+                log("Response from /get_move:", response);
+                return response.json();
+            })
+            .then(data => {
+                log("Black Move Data: ", data);
+                const move = data.move;
+                if (move) {
+                    log("Black Move: ", move);
+                    chess.uci(move);
+                    updateBoardAfterBlackMove();
+                }
+            })
+            .catch(error => log("Error in fetchBlackMove:", error));
+    }
+
+    function updateBoardAfterBlackMove() {
+        log("Updating Board after Black's Move...");
+        generateChessBoard();
+        switchTurns();
+    }
+
+    function startTimers() {
+        log("Starting Timers...");
+        whiteTimerInterval = setInterval(() => {
+            if (isWhiteTurn) {
+                whiteTime++;
+                document.getElementById('timerWhite').textContent = formatTime(whiteTime);
+            }
+        }, 1000);
+
+        blackTimerInterval = setInterval(() => {
+            if (!isWhiteTurn) {
+                blackTime++;
+                document.getElementById('timerBlack').textContent = formatTime(blackTime);
+            }
+        }, 1000);
+    }
+
+    function formatTime(seconds) {
+        const minutes = Math.floor(seconds / 60);
+        const remainingSeconds = seconds % 60;
+        return `${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`;
+    }
+    log("Starting Game...");
+    fetch('/restart_game', { method: 'POST' })
+        .then(response => {
+            log("Response from /restart_game:", response);
+            return response.json();
+        })
+        .then(data => {
+            log("Initial Game Data: ", data);
+            generateChessBoard();
+            startTimers();
+        })
+        .catch(error => log("Error in Starting Game:", error));
+
+</script>
+
+</body>
+</html>
